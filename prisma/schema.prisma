@@ -17,12 +17,23 @@ model Presence {
   pendingFrom String? // session that currently has a pending request to this user
   pendingAt DateTime? // expiry for abandoned pending requests
   connectedTo String? // reciprocal active peer, when busy
+  disconnectedAt DateTime? // starts a short refresh grace when no tab lease remains
+  leaderTabId String? // only this tab drains the shared WebRTC mailbox
   lat      Float // ALREADY privacy-offset coords (raw is never stored)
   lng      Float
   busy     Boolean  @default(false) // true while in an active connection
   lastSeen DateTime
 
+  tabs       PresenceTab[]
+  activity   ActivitySignal?
+  wavesSent  WaveRequest[] @relation("WaveSender")
+  wavesReceived WaveRequest[] @relation("WaveRecipient")
+  blocksMade Block[] @relation("Blocker")
+  blocksReceived Block[] @relation("Blocked")
+  rateLimits RateLimitBucket[]
+
   @@index([lastSeen])
+  @@index([disconnectedAt])
 }
 
 model Signal {
@@ -35,4 +46,81 @@ model Signal {
   createdAt DateTime @default(now())
 
   @@index([toId])
+}
+
+model PresenceTab {
+  id          String   @id // random per browser tab; refreshed after reload
+  presenceId  String
+  lastSeen    DateTime
+  releasedAt  DateTime?
+  presence    Presence @relation(fields: [presenceId], references: [id], onDelete: Cascade)
+
+  @@index([presenceId, releasedAt, lastSeen])
+}
+
+model ActivitySignal {
+  id        String   @id @default(uuid())
+  ownerId   String   @unique
+  category  String
+  message   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  owner     Presence @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  waves     WaveRequest[]
+
+  @@index([isActive, updatedAt])
+}
+
+model WaveRequest {
+  id          String   @id @default(uuid())
+  senderId    String
+  recipientId String
+  signalId    String?
+  status      String   @default("PENDING") // PENDING | ACCEPTING | ACCEPTED | DECLINED | IGNORED | EXPIRED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  sender      Presence @relation("WaveSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient   Presence @relation("WaveRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  activity    ActivitySignal? @relation(fields: [signalId], references: [id], onDelete: SetNull)
+
+  @@index([recipientId, status, createdAt])
+  @@index([senderId, status, createdAt])
+  @@index([senderId, recipientId, status, createdAt])
+}
+
+model Block {
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+  blocker   Presence @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   Presence @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@id([blockerId, blockedId])
+  @@index([blockedId, blockerId])
+}
+
+model SignalReport {
+  id            String   @id @default(uuid())
+  reporterId    String
+  targetId      String
+  activityId    String
+  category      String
+  message       String?
+  reason        String?
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([targetId, createdAt])
+}
+
+model RateLimitBucket {
+  presenceId String
+  action     String
+  bucketAt   DateTime
+  count      Int      @default(1)
+  presence   Presence @relation(fields: [presenceId], references: [id], onDelete: Cascade)
+
+  @@id([presenceId, action, bucketAt])
+  @@index([bucketAt])
 }
