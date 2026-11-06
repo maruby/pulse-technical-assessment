@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { STALE_MS, SIGNAL_TTL_MS } from "@/lib/presence";
 import type { PollResponse } from "@/lib/types";
+import { isSessionOwner } from "@/lib/session-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,8 +14,11 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const id = params.get("id");
 
-  if (!id) {
-    return Response.json({ error: "missing id" }, { status: 400 });
+  if (!id || id.length > 64) {
+    return Response.json({ error: "invalid id" }, { status: 400 });
+  }
+  if (!(await isSessionOwner(id, request.headers.get("x-session-token")))) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const now = Date.now();
@@ -70,5 +74,7 @@ export async function GET(request: NextRequest) {
     })),
   };
 
-  return Response.json(response);
+  return Response.json(response, {
+    headers: { "Cache-Control": "no-store, max-age=0" },
+  });
 }

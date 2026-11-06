@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import type { SignalType } from "@/lib/types";
+import { isSessionOwner } from "@/lib/session-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +37,12 @@ export async function POST(request: NextRequest) {
   if (typeof fromId !== "string" || typeof toId !== "string") {
     return Response.json({ error: "invalid ids" }, { status: 400 });
   }
+  if (fromId.length > 64 || toId.length > 64 || fromId === toId) {
+    return Response.json({ error: "invalid ids" }, { status: 400 });
+  }
+  if (!(await isSessionOwner(fromId, request.headers.get("x-session-token")))) {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
   if (typeof type !== "string" || !VALID_TYPES.includes(type as SignalType)) {
     return Response.json({ error: "invalid type" }, { status: 400 });
   }
@@ -50,21 +57,21 @@ export async function POST(request: NextRequest) {
   const signalType = type as SignalType;
   const payloadStr = typeof payload === "string" ? payload : null;
 
-  // Enforce "one active connection at a time": if the target is already busy,
-  // auto-decline the request instead of delivering it.
-  if (signalType === "request") {
-    const target = await prisma.presence.findUnique({
+  const [sender, recipient] = await Promise.all([
+    prisma.presence.findUnique({ where: { id: fromId }, select: { id: true } }),
+    prisma.presence.findUnique({
       where: { id: toId },
-      select: { busy: true },
-    });
-    if (!target) {
-      // Target went offline — tell the initiator it was declined.
-      await sendDecline(toId, fromId);
-      return Response.json({ ok: true, autoDeclined: true });
-    }
-    if (target.busy) {
-      await sendDecline(toId, fromId);
-      return Response.json({ ok: true, autoDeclined: true });
+      select: { id: true, busy: true },
+    }),
+  ]);
+  if (!sender || !recipient) {
+    return Response.json({ error: "peer offline" }, { status: 404 });
+  }
+  // Enforce "one active connection at a time": if the target is already busy,
+  // reject the request instead of delivering it.
+  if (signalType === "request") {
+    if (recipient.busy) {
+      return Response.json({ error: "peer busy" }, { status: 409 });
     }
   }
 
@@ -88,11 +95,4 @@ export async function POST(request: NextRequest) {
   });
 
   return Response.json({ ok: true });
-}
-
-// Helper: deliver an auto-decline from `target` back to `initiator`.
-async function sendDecline(targetId: string, initiatorId: string) {
-  await prisma.signal.create({
-    data: { fromId: targetId, toId: initiatorId, type: "decline", payload: null },
-  });
 }
