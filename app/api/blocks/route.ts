@@ -34,44 +34,63 @@ export async function POST(request: NextRequest) {
   const limit = await consumeRateLimit(parsed.id, "block", 10, 60 * 60_000);
   if (!limit) return Response.json({ error: "block rate limit exceeded" }, { status: 429 });
 
-  await prisma.block.upsert({
-    where: { blockerId_blockedId: { blockerId: parsed.id, blockedId: parsed.targetId } },
-    create: { blockerId: parsed.id, blockedId: parsed.targetId },
-    update: {},
-  });
+  await prisma.$transaction(async (tx) => {
+    // Share the same ordered Presence locks as Wave creation so a new request
+    // cannot slip between the block check and the block write.
+    await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "Presence"
+      WHERE "id" = ${parsed.id} OR "id" = ${parsed.targetId}
+      ORDER BY "id"
+      FOR UPDATE
+    `;
+    await tx.block.upsert({
+      where: { blockerId_blockedId: { blockerId: parsed.id, blockedId: parsed.targetId } },
+      create: { blockerId: parsed.id, blockedId: parsed.targetId },
+      update: {},
+    });
 
-  const [pending, connection] = await Promise.all([
-    prisma.waveRequest.findMany({
-      where: {
-        status: { in: ["PENDING", "ACCEPTING"] },
-        OR: [
-          { senderId: parsed.id, recipientId: parsed.targetId },
-          { senderId: parsed.targetId, recipientId: parsed.id },
+    const [pending, connection] = await Promise.all([
+      tx.waveRequest.findMany({
+        where: {
+          status: { in: ["PENDING", "ACCEPTING"] },
+          OR: [
+            { senderId: parsed.id, recipientId: parsed.targetId },
+            { senderId: parsed.targetId, recipientId: parsed.id },
+          ],
+        },
+        select: { id: true, senderId: true, recipientId: true },
+      }),
+      tx.presence.findUnique({ where: { id: parsed.id }, select: { connectedTo: true } }),
+    ]);
+    for (const wave of pending) {
+      await tx.waveRequest.updateMany({ where: { id: wave.id, status: { in: ["PENDING", "ACCEPTING"] } }, data: { status: "EXPIRED" } });
+      await tx.presence.updateMany({
+        where: { id: wave.recipientId, pendingFrom: wave.senderId },
+        data: { pendingFrom: null, pendingAt: null },
+      });
+    }
+    if (connection?.connectedTo === parsed.targetId) {
+      await tx.presence.updateMany({
+        where: { id: { in: [parsed.id, parsed.targetId] } },
+        data: { connectedTo: null, busy: false },
+      });
+      // Discard queued connection messages so no offer/ICE arrives after block.
+      await tx.signal.deleteMany({
+        where: {
+          OR: [
+            { fromId: parsed.id, toId: parsed.targetId },
+            { fromId: parsed.targetId, toId: parsed.id },
+          ],
+        },
+      });
+      await tx.signal.createMany({
+        data: [
+          { fromId: parsed.id, toId: parsed.targetId, type: "end" },
+          { fromId: parsed.targetId, toId: parsed.id, type: "end" },
         ],
-      },
-      select: { id: true, senderId: true, recipientId: true },
-    }),
-    prisma.presence.findUnique({ where: { id: parsed.id }, select: { connectedTo: true } }),
-  ]);
-  for (const wave of pending) {
-    await prisma.waveRequest.updateMany({ where: { id: wave.id, status: { in: ["PENDING", "ACCEPTING"] } }, data: { status: "EXPIRED" } });
-    await prisma.presence.updateMany({
-      where: { id: wave.recipientId, pendingFrom: wave.senderId },
-      data: { pendingFrom: null, pendingAt: null },
-    });
-  }
-  if (connection?.connectedTo === parsed.targetId) {
-    await prisma.presence.updateMany({
-      where: { id: { in: [parsed.id, parsed.targetId] } },
-      data: { connectedTo: null, busy: false },
-    });
-    await prisma.signal.createMany({
-      data: [
-        { fromId: parsed.id, toId: parsed.targetId, type: "end" },
-        { fromId: parsed.targetId, toId: parsed.id, type: "end" },
-      ],
-    });
-  }
+      });
+    }
+  });
   return Response.json({ ok: true });
 }
 

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { acceptPendingConnection, clearPendingConnection } from "@/lib/connection-state";
+import { clearPendingConnection } from "@/lib/connection-state";
 import { isActiveSessionTab, isSessionOwner } from "@/lib/session-auth";
 import { readJsonBody } from "@/lib/request-json";
 import { STALE_MS } from "@/lib/presence";
@@ -71,41 +71,78 @@ export async function POST(request: NextRequest) {
     return Response.json({ ok: true });
   }
 
-  const claimed = await prisma.waveRequest.updateMany({
-    where: { id: wave.id, recipientId: id, status: "PENDING" },
-    data: { status: "ACCEPTING" },
-  });
-  if (claimed.count !== 1) return Response.json({ error: "wave already handled" }, { status: 409 });
+  const outcome = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "Presence"
+      WHERE "id" = ${id} OR "id" = ${wave.senderId}
+      ORDER BY "id"
+      FOR UPDATE
+    `;
+    const current = await tx.waveRequest.findFirst({
+      where: { id: wave.id, recipientId: id, status: "PENDING" },
+      select: { id: true, senderId: true, signalId: true },
+    });
+    if (!current) return false;
 
-  const cutoff = new Date(Date.now() - STALE_MS);
-  const blocked = await prisma.block.findFirst({
-    where: {
-      OR: [
-        { blockerId: id, blockedId: wave.senderId },
-        { blockerId: wave.senderId, blockedId: id },
-      ],
-    },
-    select: { blockerId: true },
-  });
-  const requester = await prisma.presence.findFirst({
-    where: {
-      id: wave.senderId,
-      disconnectedAt: null,
-      lastSeen: { gte: cutoff },
-      tabs: { some: { releasedAt: null, lastSeen: { gte: cutoff } } },
-    },
-    select: { id: true },
-  });
-  const accepted = !blocked && requester && await acceptPendingConnection(id, wave.senderId);
-  if (!accepted) {
-    await prisma.waveRequest.updateMany({ where: { id: wave.id, status: "ACCEPTING" }, data: { status: "EXPIRED" } });
-    await clearPendingConnection(id, wave.senderId);
-    return Response.json({ error: "request unavailable" }, { status: 409 });
-  }
+    const cutoff = new Date(Date.now() - STALE_MS);
+    const [blocked, requester, activity] = await Promise.all([
+      tx.block.findFirst({
+        where: {
+          OR: [
+            { blockerId: id, blockedId: current.senderId },
+            { blockerId: current.senderId, blockedId: id },
+          ],
+        },
+        select: { blockerId: true },
+      }),
+      tx.presence.findFirst({
+        where: {
+          id: current.senderId,
+          disconnectedAt: null,
+          lastSeen: { gte: cutoff },
+          tabs: { some: { releasedAt: null, lastSeen: { gte: cutoff } } },
+        },
+        select: { id: true, busy: true, connectedTo: true, pendingFrom: true },
+      }),
+      current.signalId
+        ? tx.activitySignal.findFirst({ where: { id: current.signalId, isActive: true }, select: { id: true } })
+        : null,
+    ]);
+    if (blocked || !requester || requester.busy || requester.connectedTo || requester.pendingFrom || !activity) {
+      await tx.waveRequest.updateMany({ where: { id: current.id, status: "PENDING" }, data: { status: "EXPIRED" } });
+      await tx.presence.updateMany({ where: { id, pendingFrom: current.senderId }, data: { pendingFrom: null, pendingAt: null } });
+      return false;
+    }
 
-  await prisma.waveRequest.updateMany({ where: { id: wave.id, status: "ACCEPTING" }, data: { status: "ACCEPTED" } });
-  await prisma.signal.create({
-    data: { fromId: id, toId: wave.senderId, type: "accept", payload: null },
+    const recipient = await tx.presence.findUnique({ where: { id }, select: { busy: true, pendingFrom: true } });
+    if (!recipient || recipient.busy || recipient.pendingFrom !== current.senderId) {
+      await tx.waveRequest.updateMany({ where: { id: current.id, status: "PENDING" }, data: { status: "EXPIRED" } });
+      await tx.presence.updateMany({ where: { id, pendingFrom: current.senderId }, data: { pendingFrom: null, pendingAt: null } });
+      return false;
+    }
+    const claim = await tx.waveRequest.updateMany({
+      where: { id: current.id, recipientId: id, status: "PENDING" },
+      data: { status: "ACCEPTING" },
+    });
+    if (claim.count !== 1) return false;
+
+    const acceptRecipient = await tx.presence.updateMany({
+      where: { id, pendingFrom: current.senderId, busy: false },
+      data: { pendingFrom: null, pendingAt: null, connectedTo: current.senderId, busy: true },
+    });
+    const acceptSender = acceptRecipient.count === 1 && await tx.presence.updateMany({
+      where: { id: current.senderId, busy: false, connectedTo: null, pendingFrom: null },
+      data: { connectedTo: id, busy: true },
+    });
+    if (!acceptSender || acceptSender.count !== 1) {
+      await tx.presence.updateMany({ where: { id, connectedTo: current.senderId }, data: { connectedTo: null, busy: false } });
+      await tx.waveRequest.updateMany({ where: { id: current.id, status: "ACCEPTING" }, data: { status: "EXPIRED" } });
+      return false;
+    }
+    await tx.waveRequest.updateMany({ where: { id: current.id, status: "ACCEPTING" }, data: { status: "ACCEPTED" } });
+    await tx.signal.create({ data: { fromId: id, toId: current.senderId, type: "accept", payload: null } });
+    return true;
   });
+  if (!outcome) return Response.json({ error: "request unavailable" }, { status: 409 });
   return Response.json({ ok: true, peerId: wave.senderId });
 }

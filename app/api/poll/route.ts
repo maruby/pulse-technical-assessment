@@ -112,6 +112,7 @@ export async function GET(request: NextRequest) {
     ? await prisma.waveRequest.findMany({
         where: {
           recipientId: id,
+          ...(hiddenIds.size > 0 ? { senderId: { notIn: [...hiddenIds] } } : {}),
           status: "PENDING",
           createdAt: { gte: signalCutoff },
           activity: { is: { isActive: true } },

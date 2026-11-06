@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { isActiveSessionTab, isSessionOwner } from "@/lib/session-auth";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { readJsonBody } from "@/lib/request-json";
+import { STALE_MS } from "@/lib/presence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,9 @@ export async function POST(request: NextRequest) {
   const body = (parsed.value ?? {}) as { id?: unknown; signalId?: unknown; reason?: unknown };
   const id = typeof body.id === "string" ? body.id : "";
   const signalId = typeof body.signalId === "string" ? body.signalId : "";
+  if (body.reason !== undefined && typeof body.reason !== "string") {
+    return Response.json({ error: "invalid request" }, { status: 400 });
+  }
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
   const tabId = request.headers.get("x-session-tab") ?? "";
   if (id.length < 8 || id.length > 64 || signalId.length < 8 || signalId.length > 64 || reason.length > 500) {
@@ -27,8 +31,28 @@ export async function POST(request: NextRequest) {
   const limit = await consumeRateLimit(id, "signal-report", 3, 60 * 60_000);
   if (!limit) return Response.json({ error: "report rate limit exceeded" }, { status: 429 });
 
-  const activity = await prisma.activitySignal.findUnique({
-    where: { id: signalId },
+  const activity = await prisma.activitySignal.findFirst({
+    where: {
+      id: signalId,
+      isActive: true,
+      owner: {
+        is: {
+          disconnectedAt: null,
+          lastSeen: { gte: new Date(Date.now() - STALE_MS) },
+          tabs: { some: { releasedAt: null, lastSeen: { gte: new Date(Date.now() - STALE_MS) } } },
+        },
+      },
+      NOT: {
+        owner: {
+          is: {
+            OR: [
+              { blocksReceived: { some: { blockerId: id } } },
+              { blocksMade: { some: { blockedId: id } } },
+            ],
+          },
+        },
+      },
+    },
     select: { ownerId: true, category: true, message: true },
   });
   if (!activity || activity.ownerId === id) {
