@@ -74,6 +74,12 @@ export default function Home() {
   }
 
   function startPeer(peerId: string, initiator: boolean) {
+    const handleDisconnect = () => {
+      if (peerRef.current !== ps) return;
+      void sendSignal(sessionId, peerId, "end");
+      teardown("Stranger disconnected.");
+    };
+
     const ps = new PeerSession(initiator, {
       onSignal: (type: DescType, payload: string) => {
         void sendSignal(sessionId, peerId, type, payload);
@@ -82,13 +88,12 @@ export default function Home() {
       onControl: (ctrl) => handleControl(ctrl),
       onRemoteStream: (stream) => setRemoteStream(stream),
       onConnectionState: (state) => {
-        if (state === "failed") {
-          teardown("Connection failed (network).");
-        }
+        if (state === "failed") handleDisconnect();
       },
       onChannelOpen: () => {
         setConn({ kind: "connected", peerId });
       },
+      onChannelClose: handleDisconnect,
     });
     peerRef.current = ps;
   }
@@ -251,14 +256,13 @@ export default function Home() {
       }
       case "end": {
         const c = connRef.current;
-        if (
-          (c.kind === "incoming" ||
-            c.kind === "connecting" ||
-            c.kind === "connected") &&
-          c.peerId === sig.fromId
-        ) {
-          if (c.kind === "incoming") setConn({ kind: "idle" });
-          else teardown("Stranger disconnected.");
+        if (c.kind !== "idle" && c.peerId === sig.fromId) {
+          if (c.kind === "incoming") {
+            setConn({ kind: "idle" });
+          } else {
+            if (requestTimer.current) clearTimeout(requestTimer.current);
+            teardown("Stranger disconnected.");
+          }
         }
         break;
       }
@@ -291,6 +295,32 @@ export default function Home() {
       if (timer) clearTimeout(timer);
     };
   }, [phase, sessionId]);
+
+  useEffect(() => {
+    const active = connRef.current;
+    if (
+      active.kind === "idle" ||
+      peers.some((peer) => peer.id === active.peerId)
+    ) {
+      return;
+    }
+
+    if (requestTimer.current) {
+      clearTimeout(requestTimer.current);
+      requestTimer.current = null;
+    }
+    if (active.kind === "incoming") {
+      setConn({ kind: "idle" });
+      return;
+    }
+    if (active.kind === "connecting" || active.kind === "connected") {
+      void sendSignal(sessionId, active.peerId, "end");
+    }
+    teardown("Stranger disconnected.");
+    // `peers` is polled; the current callbacks/refs are intentionally read when
+    // it changes rather than restarting the polling effect on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peers]);
 
   useEffect(() => {
     if (!sessionId || phase !== "live") return;
