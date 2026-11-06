@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import type { SignalType } from "@/lib/types";
 import { isSessionOwner } from "@/lib/session-auth";
+import { readJsonBody } from "@/lib/request-json";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,16 +18,16 @@ const VALID_TYPES: SignalType[] = [
 ];
 
 const MAX_PAYLOAD = 64 * 1024;
+const MAX_BODY_BYTES = MAX_PAYLOAD + 4 * 1024;
 
 // POST /api/signal — sender must own the session and follow its persisted
 // pending/active connection state before signaling the peer.
 export async function POST(request: NextRequest) {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: "invalid body" }, { status: 400 });
+  const parsed = await readJsonBody(request, MAX_BODY_BYTES);
+  if (!parsed.ok) {
+    return Response.json({ error: "invalid body" }, { status: parsed.status });
   }
+  const body = parsed.value;
 
   const { fromId, toId, type, payload } = (body ?? {}) as Record<string, unknown>;
   if (
