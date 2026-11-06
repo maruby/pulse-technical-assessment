@@ -64,6 +64,11 @@ export default function Home() {
     _setConn(c);
   };
 
+  function isRequestingPeer(peerId: string) {
+    const current = connRef.current;
+    return current.kind === "requesting" && current.peerId === peerId;
+  }
+
   const [video, _setVideo] = useState<VideoState>("none");
   const videoRef = useRef<VideoState>(video);
   const setVideo = (v: VideoState) => {
@@ -74,6 +79,9 @@ export default function Home() {
   const peerRef = useRef<PeerSession | null>(null);
   const msgId = useRef(0);
   const requestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingWaveIdRef = useRef<string | null>(null);
+  const waveRequestInFlightRef = useRef(false);
+  const waveCancelRequestedRef = useRef(false);
 
   function showNotice(text: string) {
     setNotice(text);
@@ -151,6 +159,7 @@ export default function Home() {
       },
       onChannelOpen: () => {
         setConn({ kind: "connected", peerId });
+        showNotice("You’re connected. Say hello!");
       },
       onChannelClose: handleDisconnect,
     });
@@ -210,16 +219,39 @@ export default function Home() {
   async function createWave(peerId: string, activityId: string) {
     if (!isLeader || connRef.current.kind !== "idle") return;
     setConn({ kind: "requesting", peerId });
+    waveRequestInFlightRef.current = true;
+    waveCancelRequestedRef.current = false;
     showNotice("Wave sent. Waiting for a reply…");
     try {
       const result = await createWaveRequest(sessionId, activityId, sessionToken, tabId.current);
+      waveRequestInFlightRef.current = false;
+      if (
+        waveCancelRequestedRef.current ||
+        !isRequestingPeer(peerId)
+      ) {
+        waveCancelRequestedRef.current = false;
+        void respondToWave(sessionId, result.waveId, "cancel", sessionToken, tabId.current).catch(() => {});
+        return;
+      }
+      pendingWaveIdRef.current = result.waveId;
       requestTimer.current = setTimeout(() => {
         if (connRef.current.kind !== "requesting" || connRef.current.peerId !== peerId) return;
-        void respondToWave(sessionId, result.waveId, "cancel", sessionToken, tabId.current);
+        pendingWaveIdRef.current = null;
+        void respondToWave(sessionId, result.waveId, "cancel", sessionToken, tabId.current).catch(() => {});
         teardown("No answer yet. You can wave again later.");
       }, REQUEST_TIMEOUT_MS);
-    } catch {
-      teardown("That Signal is no longer available.");
+    } catch (error) {
+      waveRequestInFlightRef.current = false;
+      waveCancelRequestedRef.current = false;
+      pendingWaveIdRef.current = null;
+      if (!isRequestingPeer(peerId)) return;
+      const status = (error as Error & { status?: number }).status;
+      const message = status === 409
+        ? "You already have a pending Wave, or this Signal is no longer available."
+        : status === 429
+          ? "You’re waving too quickly. Please try again later."
+          : "That Signal is no longer available.";
+      teardown(message);
     }
   }
 
@@ -233,7 +265,6 @@ export default function Home() {
       if (action === "accept") {
         startPeer(wave.senderId, false);
         setConn({ kind: "connecting", peerId: wave.senderId });
-        showNotice("You’re connected. Say hello!");
       }
     } catch {
       setIncomingWave(null);
@@ -294,7 +325,15 @@ export default function Home() {
 
   function cancelRequest() {
     if (connRef.current.kind === "requesting") {
-      void emitSignal(connRef.current.peerId, "end");
+      if (pendingWaveIdRef.current) {
+        const waveId = pendingWaveIdRef.current;
+        pendingWaveIdRef.current = null;
+        void respondToWave(sessionId, waveId, "cancel", sessionToken, tabId.current).catch(() => {});
+      } else if (waveRequestInFlightRef.current) {
+        waveCancelRequestedRef.current = true;
+      } else {
+        void emitSignal(connRef.current.peerId, "end");
+      }
     }
     teardown();
   }
@@ -371,6 +410,9 @@ export default function Home() {
         const c = connRef.current;
         if (c.kind === "requesting" && c.peerId === sig.fromId) {
           if (requestTimer.current) clearTimeout(requestTimer.current);
+          pendingWaveIdRef.current = null;
+          waveRequestInFlightRef.current = false;
+          waveCancelRequestedRef.current = false;
           startPeer(sig.fromId, true);
           setConn({ kind: "connecting", peerId: sig.fromId });
           showNotice("Wave accepted. Connecting…");
