@@ -6,11 +6,12 @@ export async function join(
   lat: number,
   lng: number,
 ): Promise<void> {
-  await fetch("/api/join", {
+  const response = await fetch("/api/join", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, lat, lng }),
   });
+  if (!response.ok) throw new Error(`join failed: ${response.status}`);
 }
 
 export async function poll(id: string): Promise<PollResponse> {
