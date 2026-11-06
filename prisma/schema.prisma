@@ -14,6 +14,9 @@ datasource db {
 model Presence {
   id       String   @id // client-generated session uuid
   tokenHash String   // SHA-256 of a random bearer token; never returned after join
+  pendingFrom String? // session that currently has a pending request to this user
+  pendingAt DateTime? // expiry for abandoned pending requests
+  connectedTo String? // reciprocal active peer, when busy
   lat      Float // ALREADY privacy-offset coords (raw is never stored)
   lng      Float
   busy     Boolean  @default(false) // true while in an active connection
