@@ -218,4 +218,31 @@ The interface must be beautiful, intuitive, responsive, and fully functional.
 
 ## Phase 4 — Make it better
 
-- Pending.
+### Pulse Signals — implementation log
+
+#### Milestone 1: backend, session lifecycle, and safety APIs
+
+- Added `ActivitySignal` (one active row per presence), `WaveRequest`, `PresenceTab`, `Block`, `SignalReport`, and shared `RateLimitBucket` models in `prisma/schema.prisma`, with the additive migration `prisma/migrations/20261106180000_pulse_signals/migration.sql`. The existing `Signal` table remains the transient WebRTC mailbox.
+- Milestone 1 backend/database follow-up: the existing authenticated `POST`/`DELETE /api/pulse-signal` endpoints provide one-active-Signal upsert and owner-only deletion; `GET /api/poll` returns active, discoverable Signals alongside existing peers using privacy-offset Presence coordinates and the existing block/session filters. API validation checks category, trims optional notes, caps notes at 120 characters, and enforces active owner-tab authentication. The migration now also enforces the category allowlist and 120-character message bound in PostgreSQL, and the PresenceTab index now matches `(presenceId, releasedAt, lastSeen)` discovery/lease checks. No frontend or additional feature endpoints were added in this follow-up.
+- Added authenticated `POST`/`DELETE /api/pulse-signal`, `POST /api/waves`, `POST /api/waves/respond`, `POST`/`DELETE /api/blocks`, and `POST /api/reports`. `GET /api/poll` now includes active nearby Signals, the current user's Signal, and incoming Waves; only the elected tab drains WebRTC events. `/api/signal` remains the existing connection protocol and now shares Wave cooldowns and request rate limits.
+- Join/resume stores one anonymous browser identity in local storage and creates per-tab leases. Explicitly released tabs get a 10-second refresh grace; missed heartbeats become undiscoverable at 30 seconds. Reports retain only session references and Signal snapshots for 30 days; blocks end when either anonymous session is cleaned up. No fixed-duration Signal expiry was added.
+- API safeguards include session-owner and active-leader checks, category/message bounds, shared Postgres rate buckets (6 Signal publishes/hour, 5 requests/minute and 20/hour, 3 reports/hour), a 24-hour repeat-request cooldown after decline/ignore, bidirectional block filtering, and cleanup for stale sessions and retained records.
+- Files added/modified: `prisma/schema.prisma`, the migration above, `app/api/{join,poll,leave,signal,pulse-signal,waves,blocks,reports}`, `lib/{api,client-session,connection-state,presence,rate-limit,session-auth,types}`, and this note.
+- Checks passed: `npm.cmd run lint`, `npm.cmd run build`, `npx.cmd prisma validate`, and `git diff --check`. The migration has **not** been applied to any database, and two-browser/API acceptance testing is still outstanding.
+- Known limits: report intake has no moderation dashboard or authenticated review endpoint; review remains operational/manual. Browser-persisted bearer tokens increase exposure to same-origin script compromise, and session-scoped rate limits/blocks can be bypassed by creating a new anonymous identity.
+
+#### Frontend follow-up: Signal presentation and connection handoff
+
+- Added the Signal composer and edit/remove controls, category markers on the globe, Signal details, Wave actions, report and block flows, and an incoming Wave prompt. Accepting a Wave enters the existing connection signaling flow, so the established chat/video components are reused.
+- Added keyboard focus handling and Escape/Tab behavior for the new dialogs, mobile sheet styling, and states for busy, leader/observer tabs, and no active Signal.
+- Updated the polling cleanup to expire abandoned `ACCEPTING` Waves and to omit an empty `notIn` filter when no blocks exist.
+- Local lint, build, Prisma schema validation, and whitespace checks passed. The migration remains unapplied; database-backed and multi-browser acceptance checks still need a disposable database.
+
+#### Milestone 2: Session Lifecycle and Real-time Presence
+
+- Presence is heartbeated by the existing 1.5-second `/api/poll` loop. There is no server WebSocket layer in this repository; polling remains the real-time coordination transport, while accepted chat/video uses the existing peer-to-peer WebRTC channel.
+- A missing tab heartbeat marks a session disconnected after 30 seconds and makes it undiscoverable. Explicit tab close uses `pagehide` plus `/api/leave` to release only that tab. The Signal remains available through the 10-second refresh grace, and is visible again when a valid tab resumes. A Signal is discoverable only while its Presence has a live tab; it has no fixed-duration expiry.
+- Per-tab leases keep the shared session active while any tab continues heartbeating. The elected leader is replaced when its lease is released or becomes stale. Manually removing a Signal continues to delete it immediately.
+- Added explicit whole-session logout through authenticated `POST /api/logout`. It deletes the Presence (cascading the Signal, leases, and session-scoped safety data), clears the browser's shared anonymous identity, and notifies other open tabs via `BroadcastChannel` with a local-storage event fallback. Added a Leave control to the map HUD.
+- Files changed for this milestone: `app/api/logout/route.ts`, `app/page.tsx`, `app/components/MapHud.tsx`, `app/components/WorldMap.tsx`, `app/globals.css`, `lib/api.ts`, `lib/client-session.ts`, and this note.
+- Checks passed: `npm.cmd run lint` (no warnings), `npm.cmd run build`, `npx.cmd prisma validate`, and `git diff --check`. Lifecycle API/browser integration scenarios were not run: this checkout has no test script or local PostgreSQL service, and the configured Neon database/migration was left untouched. Verify refresh, multi-tab handoff, closure, 30-second timeout, logout propagation, and manual Signal removal against a disposable database before deployment.
