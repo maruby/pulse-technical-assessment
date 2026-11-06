@@ -16,6 +16,8 @@ export default defineConfig({
     path: path.join("prisma", "migrations"),
   },
   datasource: {
-    url: env("DATABASE_URL"),
+    // Prisma migrations and introspection should use Neon's direct connection;
+    // the app itself keeps using the pooled DATABASE_URL in lib/prisma.ts.
+    url: process.env.DATABASE_URL_UNPOOLED ?? env("DATABASE_URL"),
   },
 });
