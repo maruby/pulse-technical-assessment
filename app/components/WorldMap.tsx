@@ -10,6 +10,8 @@ import type { PeerDot } from "@/lib/types";
 import MapHud from "./MapHud";
 import PawIcon from "./PawIcon";
 import PeerPopover from "./PeerPopover";
+import SignalPopover from "./SignalPopover";
+import type { ActivityCategory } from "@/lib/types";
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "pk.eyJ1IjoicHVsc2UtbWFwIiwiYSI6ImNrMDBkZW1vMDAwMDAwMDAifQ.AAAAAAAAAAAAAAAAAAAAAA";
 const PEER_SOURCE = "pulse-peer-clusters";
@@ -27,12 +29,28 @@ export default function WorldMap({
   onPeerClick,
   canConnect,
   activePeerId,
+  myActivity,
+  isLeader,
+  onSignalWave,
+  onReportSignal,
+  onBlockPeer,
+  onCreateActivity,
+  onRemoveActivity,
+  onLogout,
 }: {
   peers: PeerDot[];
   me: { lat: number; lng: number } | null;
   onPeerClick: (id: string) => void;
   canConnect: boolean;
   activePeerId: string | null;
+  myActivity: { id: string; category: ActivityCategory } | null;
+  isLeader: boolean;
+  onSignalWave: (peerId: string, signalId: string) => void;
+  onReportSignal: (signalId: string, reason: string) => void;
+  onBlockPeer: (peerId: string) => void;
+  onCreateActivity: () => void;
+  onRemoveActivity: () => void;
+  onLogout: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapboxMap | null>(null);
@@ -41,7 +59,11 @@ export default function WorldMap({
   const popoverRef = useRef<{ popup: Popup; root: Root; peerId: string } | null>(null);
   const peersRef = useRef(peers);
   const onPeerClickRef = useRef(onPeerClick);
+  const onSignalWaveRef = useRef(onSignalWave);
+  const onReportSignalRef = useRef(onReportSignal);
+  const onBlockPeerRef = useRef(onBlockPeer);
   const canConnectRef = useRef(canConnect);
+  const isLeaderRef = useRef(isLeader);
   const selectedPeerRef = useRef<string | null>(null);
   const [ready, setReady] = useState(false);
   const [mapError, setMapError] = useState(false);
@@ -49,28 +71,35 @@ export default function WorldMap({
   useEffect(() => {
     peersRef.current = peers;
     onPeerClickRef.current = onPeerClick;
+    onSignalWaveRef.current = onSignalWave;
+    onReportSignalRef.current = onReportSignal;
+    onBlockPeerRef.current = onBlockPeer;
     canConnectRef.current = canConnect;
+    isLeaderRef.current = isLeader;
     if (canConnect && !popoverRef.current) selectedPeerRef.current = null;
-  }, [peers, onPeerClick, canConnect]);
+  }, [peers, onPeerClick, canConnect, isLeader, onSignalWave, onReportSignal, onBlockPeer]);
 
   useEffect(() => {
     const active = popoverRef.current;
     const peer = active && peers.find((item) => item.id === active.peerId);
     if (!active || !peer) return;
-    active.root.render(
-      <PeerPopover
-        peer={peer}
-        canConnect={canConnect && !peer.busy}
-        onClose={() => active.popup.remove()}
-        onConnect={() => {
-          if (!canConnect || peer.busy) return;
-          selectedPeerRef.current = peer.id;
-          active.popup.remove();
-          onPeerClickRef.current(peer.id);
-        }}
-      />,
-    );
-  }, [peers, canConnect]);
+    active.root.render(renderPeerCard(peer, canConnect, isLeader, {
+      onClose: () => active.popup.remove(),
+      onConnect: () => {
+        if (!canConnect || peer.busy) return;
+        selectedPeerRef.current = peer.id;
+        active.popup.remove();
+        onPeerClickRef.current(peer.id);
+      },
+      onWave: () => {
+        if (!canConnect || peer.busy || !peer.activity) return;
+        active.popup.remove();
+        onSignalWaveRef.current(peer.id, peer.activity.id);
+      },
+      onReport: (reason) => peer.activity && onReportSignalRef.current(peer.activity.id, reason),
+      onBlock: () => isLeaderRef.current && onBlockPeerRef.current(peer.id),
+    }));
+  }, [peers, canConnect, isLeader]);
 
   useEffect(() => {
     if (!TOKEN || !containerRef.current) return;
@@ -231,7 +260,7 @@ export default function WorldMap({
                 el.className = "paw-marker is-online";
                 el.setAttribute("aria-label", "Connect with online stranger");
                 el.title = "Tap to connect";
-                el.innerHTML = '<img src="/paw-print.svg" alt="" />';
+                el.innerHTML = '<img src="/paw-print.svg" alt="" /><span class="paw-marker__signal-category" aria-hidden="true"></span>';
                 el.addEventListener("click", (clickEvent) => {
                   clickEvent.stopPropagation();
                   const currentPeer = peersRef.current.find((item) => item.id === peer.id);
@@ -266,18 +295,21 @@ export default function WorldMap({
                     const trigger = markersRef.current.get(currentPeer.id)?.getElement();
                     if (trigger?.isConnected) trigger.focus();
                   });
-                  root.render(
-                    <PeerPopover
-                      peer={currentPeer}
-                      canConnect={canConnectRef.current && !currentPeer.busy}
-                      onClose={() => closePopover()}
-                      onConnect={() => {
-                        if (!canConnectRef.current || currentPeer.busy) return;
-                        closePopover(true);
-                        onPeerClickRef.current(currentPeer.id);
-                      }}
-                    />,
-                  );
+                  root.render(renderPeerCard(currentPeer, canConnectRef.current, isLeaderRef.current, {
+                    onClose: () => closePopover(),
+                    onConnect: () => {
+                      if (!canConnectRef.current || currentPeer.busy) return;
+                      closePopover(true);
+                      onPeerClickRef.current(currentPeer.id);
+                    },
+                    onWave: () => {
+                      if (!canConnectRef.current || currentPeer.busy || !currentPeer.activity) return;
+                      closePopover(true);
+                      onSignalWaveRef.current(currentPeer.id, currentPeer.activity.id);
+                    },
+                    onReport: (reason) => currentPeer.activity && onReportSignalRef.current(currentPeer.activity.id, reason),
+                    onBlock: () => isLeaderRef.current && onBlockPeerRef.current(currentPeer.id),
+                  }));
                 });
                 marker = new mapboxgl.Marker({ element: el, anchor: "center" })
                   .setLngLat([peer.lng, peer.lat])
@@ -289,10 +321,15 @@ export default function WorldMap({
               const element = marker.getElement();
               element.classList.toggle("is-busy", peer.busy);
               element.classList.toggle("is-selected", selectedPeerRef.current === peer.id);
+              element.classList.toggle("paw-marker--signal", Boolean(peer.activity));
+              const category = element.querySelector<HTMLElement>(".paw-marker__signal-category");
+              if (category) category.textContent = peer.activity ? signalEmoji(peer.activity.category) : "";
               (element as HTMLButtonElement).disabled = false;
               element.setAttribute(
                 "aria-label",
-                peer.busy ? "Online stranger, currently chatting" : "Connect with online stranger",
+                peer.activity
+                  ? `${peer.activity.category} Signal, ${peer.busy ? "currently chatting" : "available to wave"}`
+                  : peer.busy ? "Online stranger, currently chatting" : "Connect with online stranger",
               );
             }
 
@@ -438,6 +475,11 @@ export default function WorldMap({
 
       <MapHud
         online={peers.length}
+        myActivity={myActivity}
+        canEditActivity={isLeader}
+        onCreateActivity={onCreateActivity}
+        onRemoveActivity={onRemoveActivity}
+        onLogout={onLogout}
         onZoomIn={() => mapRef.current?.zoomIn({ duration: 240 })}
         onZoomOut={() => mapRef.current?.zoomOut({ duration: 240 })}
         onRecenter={() => {
@@ -460,6 +502,57 @@ export default function WorldMap({
       )}
     </div>
   );
+}
+
+function renderPeerCard(
+  peer: PeerDot,
+  canConnect: boolean,
+  canBlock: boolean,
+  actions: {
+    onClose: () => void;
+    onConnect: () => void;
+    onWave: () => void;
+    onReport: (reason: string) => void;
+    onBlock: () => void;
+  },
+) {
+  if (peer.activity) {
+    return (
+      <SignalPopover
+        peer={peer}
+        canWave={canConnect && !peer.busy}
+        canBlock={canBlock}
+        onWave={actions.onWave}
+        onReport={actions.onReport}
+        onBlock={actions.onBlock}
+        onClose={actions.onClose}
+      />
+    );
+  }
+  return (
+    <PeerPopover
+      peer={peer}
+      canConnect={canConnect && !peer.busy}
+      canBlock={canBlock}
+      onClose={actions.onClose}
+      onConnect={actions.onConnect}
+      onBlock={actions.onBlock}
+    />
+  );
+}
+
+function signalEmoji(category: ActivityCategory) {
+  const emoji: Record<ActivityCategory, string> = {
+    Exploring: "🧭",
+    "Casual Chat": "☕",
+    Gaming: "🎮",
+    Music: "🎵",
+    "Deep Conversations": "🌙",
+    "Just Passing By": "👋",
+    "Looking for Recommendations": "💡",
+    Custom: "✨",
+  };
+  return emoji[category] ?? "✨";
 }
 
 function createGeodesicPath(

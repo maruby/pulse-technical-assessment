@@ -2,17 +2,28 @@
 
 import Button from "./Button";
 import PawIcon from "./PawIcon";
+import type { ActivityCategory } from "@/lib/types";
 
 export default function MapHud({
   online,
   onZoomIn,
   onZoomOut,
   onRecenter,
+  myActivity,
+  canEditActivity,
+  onCreateActivity,
+  onRemoveActivity,
+  onLogout,
 }: {
   online: number;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onRecenter: () => void;
+  myActivity: { category: ActivityCategory } | null;
+  canEditActivity: boolean;
+  onCreateActivity: () => void;
+  onRemoveActivity: () => void;
+  onLogout: () => void;
 }) {
   return (
     <>
@@ -27,6 +38,9 @@ export default function MapHud({
           <span className="map-hud__online-dot" />
           <strong>{online}</strong> online
         </span>
+        <button type="button" className="map-hud__logout" onClick={onLogout} aria-label="Leave Pulse and end this session">
+          Leave
+        </button>
       </header>
 
       <nav className="map-hud__controls" aria-label="Map controls">
@@ -48,6 +62,19 @@ export default function MapHud({
           </svg>
         </Button>
       </nav>
+
+      <div className="map-hud__signal-actions">
+        <Button className="map-hud__create-signal" disabled={!canEditActivity} onClick={onCreateActivity}>
+          <PawIcon /> {myActivity ? "Edit your Signal" : "Create a Signal"}
+        </Button>
+        {myActivity && (
+          <div className="map-hud__active-signal" role="status">
+            <span aria-hidden="true">●</span> Your Signal is active · {myActivity.category}
+            <button type="button" disabled={!canEditActivity} onClick={onRemoveActivity}>Remove</button>
+          </div>
+        )}
+        {!canEditActivity && <span className="map-hud__tab-note">Pulse is active in another tab</span>}
+      </div>
 
       <div className="map-hud__privacy">
         <PawIcon />

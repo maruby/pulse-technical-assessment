@@ -6,12 +6,26 @@ import WorldMap from "./components/WorldMap";
 import ConnectionPrompt from "./components/ConnectionPrompt";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import VideoPanel from "./components/VideoPanel";
+import SignalComposer from "./components/SignalComposer";
+import IncomingWavePrompt from "./components/IncomingWavePrompt";
 import Button from "./components/Button";
 import PawIcon from "./components/PawIcon";
-import { join, leave, poll, sendSignal } from "@/lib/api";
+import {
+  blockPeer,
+  leave,
+  logout,
+  poll,
+  publishActivity,
+  removeActivity,
+  reportActivity,
+  respondToWave,
+  sendSignal,
+  sendWave as createWaveRequest,
+} from "@/lib/api";
+import { announceSessionLogout, joinOrResumeSession, onSessionLogout } from "@/lib/client-session";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS } from "@/lib/presence";
-import { type PeerDot, type SignalMsg } from "@/lib/types";
+import { type ActivityCategory, type PeerDot, type SignalMsg, type WaveNotification } from "@/lib/types";
 
 type Conn =
   | { kind: "idle" }
@@ -26,9 +40,15 @@ const REQUEST_TIMEOUT_MS = 30_000;
 
 export default function Home() {
   const [phase, setPhase] = useState<"gate" | "live">("gate");
-  const [sessionId] = useState(() => crypto.randomUUID());
+  const [sessionId, setSessionId] = useState("");
+  const tabId = useRef(crypto.randomUUID());
   const [sessionToken, setSessionToken] = useState("");
+  const [isLeader, setIsLeader] = useState(false);
   const [peers, setPeers] = useState<PeerDot[]>([]);
+  const [myActivity, setMyActivity] = useState<Awaited<ReturnType<typeof poll>>["myActivity"]>(null);
+  const [incomingWave, setIncomingWave] = useState<WaveNotification | null>(null);
+  const [signalComposerOpen, setSignalComposerOpen] = useState(false);
+  const [signalBusy, setSignalBusy] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -64,6 +84,10 @@ export default function Home() {
     setMessages((prev) => [...prev, { id: msgId.current++, mine, text }]);
   }
 
+  function emitSignal(peerId: string, type: Parameters<typeof sendSignal>[2], payload?: string) {
+    return sendSignal(sessionId, peerId, type, sessionToken, payload, tabId.current);
+  }
+
   function teardown(message?: string) {
     if (requestTimer.current) clearTimeout(requestTimer.current);
     peerRef.current?.close();
@@ -76,16 +100,48 @@ export default function Home() {
     if (message) showNotice(message);
   }
 
+  function clearLocalSession() {
+    teardown();
+    setPhase("gate");
+    setSessionId("");
+    setSessionToken("");
+    setIsLeader(false);
+    setPeers([]);
+    setMyActivity(null);
+    setIncomingWave(null);
+    setMyLocation(null);
+    setSignalComposerOpen(false);
+  }
+
+  const clearLocalSessionRef = useRef(clearLocalSession);
+  useEffect(() => {
+    clearLocalSessionRef.current = clearLocalSession;
+  });
+
+  async function handleLogout() {
+    try {
+      await logout(sessionId, sessionToken);
+      announceSessionLogout(sessionId);
+      clearLocalSession();
+    } catch {
+      showNotice("Could not leave Pulse. Check your connection and try again.");
+    }
+  }
+
+  useEffect(() => onSessionLogout((id) => {
+    if (id === sessionId) clearLocalSessionRef.current();
+  }), [sessionId]);
+
   function startPeer(peerId: string, initiator: boolean) {
     const handleDisconnect = () => {
       if (peerRef.current !== ps) return;
-      void sendSignal(sessionId, peerId, "end", sessionToken);
+      void emitSignal(peerId, "end");
       teardown("Stranger disconnected.");
     };
 
     const ps = new PeerSession(initiator, {
       onSignal: (type: DescType, payload: string) => {
-        void sendSignal(sessionId, peerId, type, sessionToken, payload);
+        void emitSignal(peerId, type, payload);
       },
       onChat: (text) => addMessage(false, text),
       onControl: (ctrl) => handleControl(ctrl),
@@ -137,23 +193,108 @@ export default function Home() {
   }
 
   function requestConnection(peerId: string) {
-    if (connRef.current.kind !== "idle") return;
+    if (!isLeader || connRef.current.kind !== "idle") return;
     setConn({ kind: "requesting", peerId });
-    void sendSignal(sessionId, peerId, "request", sessionToken);
+    void emitSignal(peerId, "request");
     requestTimer.current = setTimeout(() => {
       if (
         connRef.current.kind === "requesting" &&
         connRef.current.peerId === peerId
       ) {
-        void sendSignal(sessionId, peerId, "end", sessionToken);
+        void emitSignal(peerId, "end");
         teardown("No answer.");
       }
     }, REQUEST_TIMEOUT_MS);
   }
 
+  async function createWave(peerId: string, activityId: string) {
+    if (!isLeader || connRef.current.kind !== "idle") return;
+    setConn({ kind: "requesting", peerId });
+    showNotice("Wave sent. Waiting for a reply…");
+    try {
+      const result = await createWaveRequest(sessionId, activityId, sessionToken, tabId.current);
+      requestTimer.current = setTimeout(() => {
+        if (connRef.current.kind !== "requesting" || connRef.current.peerId !== peerId) return;
+        void respondToWave(sessionId, result.waveId, "cancel", sessionToken, tabId.current);
+        teardown("No answer yet. You can wave again later.");
+      }, REQUEST_TIMEOUT_MS);
+    } catch {
+      teardown("That Signal is no longer available.");
+    }
+  }
+
+  async function handleWaveResponse(action: "accept" | "decline" | "ignore") {
+    const wave = incomingWave;
+    if (!wave || !isLeader) return;
+    setSignalBusy(true);
+    try {
+      await respondToWave(sessionId, wave.id, action, sessionToken, tabId.current);
+      setIncomingWave(null);
+      if (action === "accept") {
+        startPeer(wave.senderId, false);
+        setConn({ kind: "connecting", peerId: wave.senderId });
+        showNotice("You’re connected. Say hello!");
+      }
+    } catch {
+      setIncomingWave(null);
+      showNotice("That Wave is no longer available.");
+    } finally {
+      setSignalBusy(false);
+    }
+  }
+
+  async function publishMyActivity(category: ActivityCategory, message: string) {
+    if (!isLeader) return;
+    setSignalBusy(true);
+    try {
+      await publishActivity(sessionId, sessionToken, tabId.current, category, message);
+      setSignalComposerOpen(false);
+      showNotice("Your Signal is live on the map.");
+    } catch {
+      showNotice("Couldn’t publish your Signal. Please try again.");
+    } finally {
+      setSignalBusy(false);
+    }
+  }
+
+  async function removeMyActivity() {
+    if (!isLeader) return;
+    setSignalBusy(true);
+    try {
+      await removeActivity(sessionId, sessionToken, tabId.current);
+      setMyActivity(null);
+      setSignalComposerOpen(false);
+      showNotice("Your Signal was removed.");
+    } catch {
+      showNotice("Couldn’t remove your Signal. Please try again.");
+    } finally {
+      setSignalBusy(false);
+    }
+  }
+
+  async function reportPeerSignal(activityId: string, reason: string) {
+    try {
+      await reportActivity(sessionId, activityId, reason, sessionToken, tabId.current);
+      showNotice("Thanks. The Signal was reported.");
+    } catch {
+      showNotice("Couldn’t send the report. Please try again.");
+    }
+  }
+
+  async function blockPeerSession(peerId: string) {
+    try {
+      await blockPeer(sessionId, peerId, sessionToken, tabId.current);
+      if (connRef.current.kind !== "idle" && connRef.current.peerId === peerId) teardown("This person is blocked.");
+      setPeers((current) => current.filter((peer) => peer.id !== peerId));
+      showNotice("This person is blocked.");
+    } catch {
+      showNotice("Couldn’t block this person. Please try again.");
+    }
+  }
+
   function cancelRequest() {
     if (connRef.current.kind === "requesting") {
-      void sendSignal(sessionId, connRef.current.peerId, "end", sessionToken);
+      void emitSignal(connRef.current.peerId, "end");
     }
     teardown();
   }
@@ -162,20 +303,20 @@ export default function Home() {
     if (connRef.current.kind !== "incoming") return;
     const peerId = connRef.current.peerId;
     startPeer(peerId, false);
-    void sendSignal(sessionId, peerId, "accept", sessionToken);
+    void emitSignal(peerId, "accept");
     setConn({ kind: "connecting", peerId });
   }
 
   function declineIncoming() {
     if (connRef.current.kind !== "incoming") return;
-    void sendSignal(sessionId, connRef.current.peerId, "decline", sessionToken);
+    void emitSignal(connRef.current.peerId, "decline");
     setConn({ kind: "idle" });
   }
 
   function endConnection() {
     const c = connRef.current;
     if (c.kind === "connecting" || c.kind === "connected") {
-      void sendSignal(sessionId, c.peerId, "end", sessionToken);
+      void emitSignal(c.peerId, "end");
     }
     teardown();
   }
@@ -222,7 +363,7 @@ export default function Home() {
         if (connRef.current.kind === "idle") {
           setConn({ kind: "incoming", peerId: sig.fromId });
         } else {
-          void sendSignal(sessionId, sig.fromId, "decline", sessionToken);
+          void emitSignal(sig.fromId, "decline");
         }
         break;
       }
@@ -232,6 +373,7 @@ export default function Home() {
           if (requestTimer.current) clearTimeout(requestTimer.current);
           startPeer(sig.fromId, true);
           setConn({ kind: "connecting", peerId: sig.fromId });
+          showNotice("Wave accepted. Connecting…");
         }
         break;
       }
@@ -284,10 +426,17 @@ export default function Home() {
 
     const tick = async () => {
       try {
-        const data = await poll(sessionId, sessionToken);
+        const data = await poll(sessionId, sessionToken, tabId.current);
         if (!active) return;
         setPeers(data.peers);
-        for (const s of data.signals) processSignalRef.current(s);
+        setMyActivity(data.myActivity);
+        setIsLeader(data.isLeader);
+        setIncomingWave(data.isLeader
+          ? (current) => data.waves.find((wave) => wave.id === current?.id) ?? data.waves[0] ?? null
+          : null);
+        if (data.isLeader) {
+          for (const s of data.signals) processSignalRef.current(s);
+        }
       } catch {}
       if (active) timer = setTimeout(tick, POLL_INTERVAL_MS);
     };
@@ -317,7 +466,7 @@ export default function Home() {
       return;
     }
     if (active.kind === "connecting" || active.kind === "connected") {
-      void sendSignal(sessionId, active.peerId, "end", sessionToken);
+      void emitSignal(active.peerId, "end");
     }
     teardown("Stranger disconnected.");
     // `peers` is polled; the current callbacks/refs are intentionally read when
@@ -327,19 +476,19 @@ export default function Home() {
 
   useEffect(() => {
     if (!sessionId || phase !== "live") return;
-    const onLeave = () => leave(sessionId, sessionToken);
+    const onLeave = () => leave(sessionId, sessionToken, tabId.current);
     window.addEventListener("pagehide", onLeave);
-    window.addEventListener("beforeunload", onLeave);
     return () => {
       window.removeEventListener("pagehide", onLeave);
-      window.removeEventListener("beforeunload", onLeave);
     };
   }, [sessionId, phase, sessionToken]);
 
   async function handleReady(lat: number, lng: number) {
     setMyLocation({ lat, lng });
-    const token = await join(sessionId, lat, lng);
-    setSessionToken(token);
+    const session = await joinOrResumeSession(lat, lng, tabId.current);
+    setSessionId(session.id);
+    setSessionToken(session.token);
+    setIsLeader(session.isLeader);
     setPhase("live");
   }
 
@@ -357,8 +506,16 @@ export default function Home() {
         peers={peers}
         me={myLocation}
         onPeerClick={requestConnection}
-        canConnect={conn.kind === "idle"}
+        canConnect={isLeader && conn.kind === "idle"}
         activePeerId={activePeerId}
+        myActivity={myActivity}
+        isLeader={isLeader}
+        onSignalWave={createWave}
+        onReportSignal={reportPeerSignal}
+        onBlockPeer={blockPeerSession}
+        onCreateActivity={() => setSignalComposerOpen(true)}
+        onRemoveActivity={() => void removeMyActivity()}
+        onLogout={() => void handleLogout()}
       />
 
       {notice && (
@@ -389,6 +546,27 @@ export default function Home() {
           declineLabel="Decline"
           onAccept={acceptIncoming}
           onDecline={declineIncoming}
+        />
+      )}
+
+      {incomingWave && conn.kind === "idle" && (
+        <IncomingWavePrompt
+          wave={incomingWave}
+          busy={signalBusy}
+          onAccept={() => void handleWaveResponse("accept")}
+          onDecline={() => void handleWaveResponse("decline")}
+          onIgnore={() => void handleWaveResponse("ignore")}
+        />
+      )}
+
+      {signalComposerOpen && (
+        <SignalComposer
+          currentCategory={myActivity?.category}
+          currentMessage={myActivity?.message}
+          busy={signalBusy}
+          onPublish={publishMyActivity}
+          onRemove={() => void removeMyActivity()}
+          onClose={() => setSignalComposerOpen(false)}
         />
       )}
 
