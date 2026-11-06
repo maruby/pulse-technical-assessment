@@ -6,6 +6,8 @@ import WorldMap from "./components/WorldMap";
 import ConnectionPrompt from "./components/ConnectionPrompt";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel";
 import VideoPanel from "./components/VideoPanel";
+import Button from "./components/Button";
+import PawIcon from "./components/PawIcon";
 import { join, leave, poll, sendSignal } from "@/lib/api";
 import { PeerSession, type DescType, type PeerControl } from "@/lib/webrtc";
 import { POLL_INTERVAL_MS } from "@/lib/presence";
@@ -346,6 +348,8 @@ export default function Home() {
   }
 
   const inChat = conn.kind === "connecting" || conn.kind === "connected";
+  const activePeerId =
+    conn.kind === "connecting" || conn.kind === "connected" ? conn.peerId : null;
 
   return (
     <main className="fixed inset-0 overflow-hidden">
@@ -354,29 +358,33 @@ export default function Home() {
         me={myLocation}
         onPeerClick={requestConnection}
         canConnect={conn.kind === "idle"}
+        activePeerId={activePeerId}
       />
 
       {notice && (
-        <div className="absolute left-1/2 top-20 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-          {notice}
+        <div className="pulse-toast" role="status" aria-live="polite">
+          <span className="pulse-toast__paw"><PawIcon /></span>
+          <span>{notice}</span>
         </div>
       )}
 
       {conn.kind === "requesting" && (
-        <div className="absolute left-1/2 top-20 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
+        <div className="request-status" role="status">
+          <PawIcon className="request-status__paw" />
           <span>Requesting connection…</span>
-          <button
+          <Button
+            variant="secondary"
             onClick={cancelRequest}
-            className="rounded-full bg-zinc-700 px-3 py-1 text-xs hover:bg-zinc-600"
           >
             Cancel
-          </button>
+          </Button>
         </div>
       )}
 
       {conn.kind === "incoming" && (
         <ConnectionPrompt
-          title="A stranger wants to connect"
+          title="A new paw wants to say hello"
+          subtitle="A stranger nearby would like to chat."
           acceptLabel="Accept"
           declineLabel="Decline"
           onAccept={acceptIncoming}
@@ -399,15 +407,16 @@ export default function Home() {
       )}
 
       {video === "requesting" && (
-        <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-zinc-800/90 px-4 py-2 text-sm text-zinc-100 shadow-lg backdrop-blur">
-          Waiting for stranger to accept video…
+        <div className="video-request-toast" role="status" aria-live="polite">
+          <span className="video-request-toast__paw"><PawIcon /></span>
+          <span>Waiting for them to accept video…</span>
         </div>
       )}
 
       {video === "incoming" && (
         <ConnectionPrompt
-          title="Start video call?"
-          subtitle="The stranger wants to turn on video."
+          title="Start a video call?"
+          subtitle="Your camera and microphone turn on only after you accept."
           acceptLabel="Accept"
           declineLabel="Decline"
           onAccept={acceptVideo}

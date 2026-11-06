@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Button from "./Button";
+import PawIcon from "./PawIcon";
 
 export default function EntryGate({
   onReady,
@@ -39,30 +41,37 @@ export default function EntryGate({
   }
 
   return (
-    <div className="flex min-h-full flex-1 flex-col items-center justify-center gap-8 bg-zinc-950 p-6 text-zinc-100">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold tracking-tight">Pulse</h1>
-        <p className="mt-2 max-w-sm text-zinc-400">
-          A living globe of anonymous strangers. Drop onto the map and connect.
-        </p>
+    <main className="entry-gate">
+      <div className="entry-gate__brand">
+        <PawIcon className="entry-gate__paw" />
+        <div>
+          <h1>Pulse</h1>
+          <p className="entry-gate__tagline">
+            A living globe of anonymous strangers. Drop onto the map and connect.
+          </p>
+        </div>
       </div>
 
-      <button
+      <Button
         onClick={enter}
         disabled={status === "locating"}
-        className="rounded-full bg-emerald-400 px-8 py-3 font-semibold text-zinc-950 transition hover:bg-emerald-300 disabled:opacity-60"
+        className="entry-gate__enter"
+        aria-busy={status === "locating"}
       >
-        {status === "locating" ? "Locating…" : "Enter Pulse"}
-      </button>
+        {status === "locating" ? "Finding your place…" : "Enter Pulse"}
+      </Button>
 
-      {status === "error" && (
-        <p className="max-w-sm text-center text-sm text-red-400">{error}</p>
+      {status === "locating" && (
+        <p className="entry-gate__progress" role="status" aria-live="polite">
+          <PawIcon /> Finding a safe place on the map…
+        </p>
       )}
+      {status === "error" && <p className="entry-gate__error" role="alert">{error}</p>}
 
-      <p className="max-w-sm text-center text-xs text-zinc-500">
+      <p className="entry-gate__privacy">
         No sign-up. Your dot is placed 1–3&nbsp;km from your real location.
         Nothing is stored — closing the tab ends everything.
       </p>
-    </div>
+    </main>
   );
 }

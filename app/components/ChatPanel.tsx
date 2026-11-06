@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Button from "./Button";
+import PawIcon from "./PawIcon";
 
 export interface ChatMessage {
   id: number;
@@ -27,7 +29,8 @@ export default function ChatPanel({
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    endRef.current?.scrollIntoView({ behavior: reducedMotion ? "instant" : "smooth" });
   }, [messages]);
 
   function submit(e: React.FormEvent) {
@@ -39,72 +42,78 @@ export default function ChatPanel({
   }
 
   return (
-    <div className="absolute inset-y-0 right-0 z-20 flex w-full max-w-md flex-col border-l border-zinc-800 bg-zinc-950 text-zinc-100 shadow-2xl">
-      <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-        <div>
-          <p className="font-semibold">Stranger</p>
-          <p className="text-xs text-zinc-500">
-            {connected ? "Connected" : "Connecting…"}
-          </p>
+    <section className="chat-panel" aria-label="Conversation with stranger">
+      <header className="chat-panel__header">
+        <div className="chat-panel__identity">
+          <span className="chat-panel__avatar"><PawIcon /></span>
+          <div>
+            <p className="chat-panel__name">A stranger nearby</p>
+            <p className="chat-panel__status">
+              <span className={`chat-panel__status-dot${connected ? " is-connected" : ""}`} />
+              {connected ? "Connected" : "Making a connection…"}
+            </p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button
+        <div className="chat-panel__header-actions">
+          <Button
+            variant="secondary"
+            className="chat-action"
             onClick={onStartVideo}
             disabled={!connected || videoBusy}
-            className="rounded-full border border-zinc-700 px-3 py-1.5 text-sm hover:border-zinc-500 disabled:opacity-40"
           >
             Video
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="danger"
+            className="chat-action"
             onClick={onEnd}
-            className="rounded-full bg-red-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-400"
           >
             End
-          </button>
+          </Button>
         </div>
       </header>
 
-      <div className="flex-1 space-y-2 overflow-y-auto p-4">
+      <div className="chat-panel__messages" role="log" aria-label="Conversation messages" aria-live="polite" aria-relevant="additions">
         {messages.length === 0 && (
-          <p className="mt-8 text-center text-sm text-zinc-500">
-            Say hello. Messages are peer-to-peer and never stored.
-          </p>
+          <div className="chat-panel__empty">
+            <span className="chat-panel__empty-paw"><PawIcon /></span>
+            <strong>{connected ? "Start with a hello" : "Making a connection…"}</strong>
+            <span>
+              {connected
+                ? "Your chat is private and disappears when you leave."
+                : "Your chat will open as soon as you’re connected."}
+            </span>
+          </div>
         )}
         {messages.map((m) => (
           <div
             key={m.id}
-            className={`flex ${m.mine ? "justify-end" : "justify-start"}`}
+            className={`chat-message${m.mine ? " is-mine" : ""}`}
           >
-            <span
-              className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
-                m.mine
-                  ? "bg-emerald-400 text-zinc-950"
-                  : "bg-zinc-800 text-zinc-100"
-              }`}
-            >
-              {m.text}
-            </span>
+            <span className="chat-message__bubble">{m.text}</span>
           </div>
         ))}
         <div ref={endRef} />
       </div>
 
-      <form onSubmit={submit} className="flex gap-2 border-t border-zinc-800 p-3">
+      <form onSubmit={submit} className="chat-panel__composer">
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={connected ? "Type a message…" : "Connecting…"}
           disabled={!connected}
-          className="flex-1 rounded-full bg-zinc-900 px-4 py-2 text-sm outline-none placeholder:text-zinc-600 focus:ring-1 focus:ring-emerald-400 disabled:opacity-50"
+          className="chat-panel__input"
+          aria-label="Message"
         />
-        <button
+        <Button
+          variant="primary"
+          className="chat-action"
           type="submit"
           disabled={!connected || !draft.trim()}
-          className="rounded-full bg-emerald-400 px-4 py-2 text-sm font-semibold text-zinc-950 disabled:opacity-40"
         >
           Send
-        </button>
+        </Button>
       </form>
-    </div>
+    </section>
   );
 }

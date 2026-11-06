@@ -1,5 +1,9 @@
 "use client";
 
+import Button from "./Button";
+import PawIcon from "./PawIcon";
+import { useEffect, useRef } from "react";
+
 // Reusable centered prompt for "someone wants to connect" and
 // "someone wants to start video".
 export default function ConnectionPrompt({
@@ -17,26 +21,72 @@ export default function ConnectionPrompt({
   onAccept: () => void;
   onDecline: () => void;
 }) {
+  const cardRef = useRef<HTMLElement>(null);
+  const onDeclineRef = useRef(onDecline);
+
+  useEffect(() => {
+    onDeclineRef.current = onDecline;
+  }, [onDecline]);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const card = cardRef.current;
+    const firstButton = card?.querySelector<HTMLButtonElement>("button:not(:disabled)");
+    firstButton?.focus();
+
+    function keepFocusInside(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onDeclineRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !card) return;
+      const buttons = Array.from(card.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+      if (buttons.length === 0) {
+        event.preventDefault();
+        card.focus();
+        return;
+      }
+      const first = buttons[0];
+      const last = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    document.addEventListener("keydown", keepFocusInside);
+    return () => {
+      document.removeEventListener("keydown", keepFocusInside);
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, []);
+
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-6">
-      <div className="w-full max-w-xs rounded-2xl bg-zinc-900 p-6 text-center text-zinc-100 shadow-xl">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        {subtitle && <p className="mt-1 text-sm text-zinc-400">{subtitle}</p>}
-        <div className="mt-5 flex gap-3">
-          <button
+    <div className="connection-prompt">
+      <section ref={cardRef} className="connection-prompt__card" role="dialog" aria-modal="true" aria-labelledby="connection-prompt-title" tabIndex={-1}>
+        <PawIcon className="connection-prompt__icon" />
+        <h2 id="connection-prompt-title">{title}</h2>
+        {subtitle && <p>{subtitle}</p>}
+        <div className="connection-prompt__actions">
+          <Button
+            variant="secondary"
             onClick={onDecline}
-            className="flex-1 rounded-full border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 hover:border-zinc-500"
           >
             {declineLabel}
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={onAccept}
-            className="flex-1 rounded-full bg-emerald-400 px-4 py-2 text-sm font-semibold text-zinc-950 hover:bg-emerald-300"
           >
             {acceptLabel}
-          </button>
+          </Button>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

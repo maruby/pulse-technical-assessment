@@ -28,7 +28,130 @@
 
 ## Phase 2 — Make it good
 
-- Pending.
+### Phase 2 UI/UX design specification
+
+## Design Direction: Cozy Cat Theme
+
+Transform Pulse into a warm, playful, modern social discovery application inspired by orange tabby cats.
+
+The application should feel welcoming, minimal, polished, and premium.
+
+Avoid:
+- Cosmic or space aesthetics.
+- Neon colors.
+- Cyberpunk styling.
+- Excessive gradients.
+- Overly playful children's game interfaces.
+
+## 1. Color Palette
+
+| Element | Color |
+|---|---|
+| Background | #FFF9F1 |
+| Surface | #FFFFFF |
+| Primary | #F28C38 |
+| Secondary | #FFB66D |
+| Soft Accent | #FCE8D5 |
+| Text | #39332E |
+| Muted Text | #8C8177 |
+| Border | #F0E7DC |
+
+Use orange strategically. Avoid making the entire interface orange.
+
+## 2. Design Language
+
+- Light cream backgrounds.
+- White surfaces with subtle shadows.
+- Rounded UI components.
+- Warm orange accents.
+- Clean typography.
+- Generous whitespace.
+- Minimalist navigation.
+- Subtle and intentional animations.
+
+## 3. Signature Element: Paw Print Locations
+
+Paw prints must be the primary location indicators throughout the globe.
+
+Replace traditional map pins and generic location dots with stylized cat paw-print icons.
+
+### States
+
+**Default**
+- Orange paw print.
+- Subtle cream circular background.
+
+**Online**
+- Gentle pulsing animation.
+- Indicates an active user.
+
+**Selected**
+- Expanding circular ripple.
+- Highlight the selected paw.
+
+**Clustered**
+- Larger paw indicator.
+- Display the number of users nearby.
+
+**Hover / Tap**
+- Display a small user information popover.
+- Provide an option to initiate a connection.
+
+### Requirements
+- Maintain recognizable paw shapes at different zoom levels.
+- Ensure sufficient contrast against the map.
+- Avoid excessive animations.
+- Preserve accurate geographic positioning.
+- Do not expose exact user coordinates to other users.
+
+## 4. Phase 2 Priorities
+
+### P0 — Design Foundation
+- Establish design tokens.
+- Implement the light color palette.
+- Update typography, buttons, icons, and reusable components.
+- Apply consistent styling throughout the application.
+
+### P1 — Globe Experience
+- Replace location pins with paw-print indicators.
+- Implement online and selected states.
+- Add clustered paw indicators.
+- Add subtle animations and selection effects.
+- Preserve existing globe functionality.
+
+### P2 — Core UI
+- Redesign floating navigation and quick actions.
+- Restyle chat bubbles and messaging interactions.
+- Redesign video call controls.
+- Improve connection and disconnection animations.
+- Polish notifications and empty states.
+
+### P3 — Final Polish
+- Add subtle paw-inspired micro-interactions.
+- Improve loading states.
+- Optimize desktop and mobile layouts.
+- Support reduced-motion accessibility.
+
+## 5. Technical Constraints
+
+1. Inspect the existing codebase before implementation.
+2. Preserve all existing functionality.
+3. Do not modify backend APIs or database schemas.
+4. Do not break WebSocket, WebRTC, authentication, or location tracking.
+5. Reuse existing components and dependencies.
+6. Keep components modular and maintainable.
+7. Implement incrementally from P0 to P3.
+8. Run builds and tests after changes.
+
+## 6. Definition of Done
+
+Pulse should feel like a welcoming social discovery application with a distinctive orange cat identity.
+
+The globe remains the centerpiece.
+
+Paw prints become the recognizable signature of user presence and location.
+
+The interface must be beautiful, intuitive, responsive, and fully functional.
 
 ## Phase 3 — Make it secure
 

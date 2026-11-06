@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import Button from "./Button";
+import PawIcon from "./PawIcon";
 
 export default function VideoPanel({
   localStream,
@@ -27,37 +29,48 @@ export default function VideoPanel({
   }, [remoteStream]);
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col bg-black">
-      <div className="relative flex-1">
-        {/* Remote (full screen) */}
+    <section className="video-panel" aria-label="Video call">
+      <header className="video-panel__header">
+        <span className="video-panel__call-mark"><PawIcon /></span>
+        <div>
+          <strong>Private video call</strong>
+          <span>Only you and your stranger</span>
+        </div>
+      </header>
+      <div className="video-panel__stage" aria-busy={!remoteStream}>
         <video
           ref={remoteRef}
           autoPlay
           playsInline
-          className="h-full w-full bg-zinc-900 object-cover"
+          className="video-panel__remote"
+          aria-label="Stranger’s video"
         />
         {!remoteStream && (
-          <div className="absolute inset-0 flex items-center justify-center text-zinc-500">
-            Waiting for stranger&rsquo;s video…
+          <div className="video-panel__waiting" role="status" aria-live="polite">
+            <span className="video-panel__waiting-paw"><PawIcon /></span>
+            <strong>Waiting for their video</strong>
+            <span>Just a moment while the connection settles.</span>
           </div>
         )}
-        {/* Local (picture-in-picture) */}
         <video
           ref={localRef}
           autoPlay
           playsInline
           muted
-          className="absolute bottom-4 right-4 h-40 w-28 rounded-lg border border-zinc-700 bg-zinc-800 object-cover"
+          className="video-panel__local"
+          aria-label="Your camera preview"
         />
+        <span className="video-panel__local-label">You</span>
       </div>
-      <div className="flex justify-center bg-zinc-950 p-4">
-        <button
+      <div className="video-panel__controls">
+        <Button
+          variant="danger"
+          className="video-panel__end"
           onClick={onEnd}
-          className="rounded-full bg-red-500 px-8 py-3 font-semibold text-white hover:bg-red-400"
         >
-          End video
-        </button>
+          End call
+        </Button>
       </div>
-    </div>
+    </section>
   );
 }

@@ -1,0 +1,25 @@
+export default function PawIcon({
+  className = "",
+  label,
+}: {
+  className?: string;
+  label?: string;
+}) {
+  const decorative = !label;
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 48 48"
+      role={decorative ? "presentation" : "img"}
+      aria-label={label}
+      aria-hidden={decorative ? true : undefined}
+      focusable="false"
+    >
+      <ellipse cx="11.2" cy="16.5" rx="5" ry="6.7" transform="rotate(-20 11.2 16.5)" fill="currentColor" />
+      <ellipse cx="22" cy="10.3" rx="5" ry="6.8" transform="rotate(-6 22 10.3)" fill="currentColor" />
+      <ellipse cx="33.6" cy="12.5" rx="5" ry="6.8" transform="rotate(13 33.6 12.5)" fill="currentColor" />
+      <ellipse cx="41" cy="21.2" rx="4.2" ry="5.7" transform="rotate(25 41 21.2)" fill="currentColor" />
+      <path d="M24 20c-4.3 0-7.2 3.6-9.8 7.7-2.5 3.9-5 8-2.6 11.1 2.1 2.7 6.1 1.5 10.4.2 1.1-.3 2-.6 3-.6s2 .3 3.1.6c4.3 1.3 8.3 2.5 10.4-.2 2.4-3.1-.1-7.2-2.6-11.1C33.2 23.6 28.3 20 24 20Z" fill="currentColor" />
+    </svg>
+  );
+}
