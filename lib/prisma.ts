@@ -16,7 +16,10 @@ function createClient() {
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set");
   }
-  const adapter = new PrismaPg({ connectionString });
+  // Keep each warm serverless instance's pool small. Neon pooling handles
+  // multiplexing across instances; a large local pool per function can
+  // otherwise consume the database's client connection limit quickly.
+  const adapter = new PrismaPg({ connectionString, max: 3 });
   return new PrismaClient({
     adapter,
     log:
