@@ -62,5 +62,6 @@ export interface PollResponse {
   signals: SignalMsg[];
   myActivity: Omit<ActivitySignal, "ownerId"> | null;
   waves: WaveNotification[];
+  incomingRequest: string | null;
   isLeader: boolean;
 }

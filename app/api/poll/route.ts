@@ -100,6 +100,22 @@ export async function GET(request: NextRequest) {
     select: { id: true, category: true, message: true, owner: { select: { lat: true, lng: true } } },
   });
 
+  // The request mailbox is a delivery hint; persisted pending state is the
+  // source of truth. Recover an ordinary connection prompt if a concurrent
+  // poll drained the mailbox before the elected tab processed it.
+  const pendingRequest = isLeader
+    ? await prisma.presence.findFirst({
+        where: {
+          id,
+          pendingFrom: { not: null },
+          pendingAt: { gte: signalCutoff },
+          wavesReceived: { some: { signalId: null, status: "PENDING", createdAt: { gte: signalCutoff } } },
+          ...(hiddenIds.size > 0 ? { pendingFrom: { notIn: [...hiddenIds] } } : {}),
+        },
+        select: { pendingFrom: true },
+      })
+    : null;
+
   // Other tabs still render discovery state; only the leader consumes events.
   const inbox = isLeader
     ? await prisma.signal.findMany({ where: { toId: id }, orderBy: { createdAt: "asc" } })
@@ -155,6 +171,7 @@ export async function GET(request: NextRequest) {
       message: wave.activity.message,
       createdAt: wave.createdAt.toISOString(),
     }] : []),
+    incomingRequest: pendingRequest?.pendingFrom ?? null,
     isLeader,
   };
 

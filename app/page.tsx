@@ -485,6 +485,9 @@ export default function Home() {
           : null);
         if (data.isLeader) {
           for (const s of data.signals) processSignalRef.current(s);
+          if (data.incomingRequest && connRef.current.kind === "idle") {
+            setConn({ kind: "incoming", peerId: data.incomingRequest });
+          }
         }
       } catch {
         if (active) setPollStatus("reconnecting");
