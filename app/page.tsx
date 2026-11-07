@@ -35,6 +35,7 @@ type Conn =
   | { kind: "connected"; peerId: string };
 
 type VideoState = "none" | "requesting" | "incoming" | "active";
+type PollStatus = "connecting" | "connected" | "reconnecting";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -44,6 +45,7 @@ export default function Home() {
   const tabId = useRef(crypto.randomUUID());
   const [sessionToken, setSessionToken] = useState("");
   const [isLeader, setIsLeader] = useState(false);
+  const [pollStatus, setPollStatus] = useState<PollStatus>("connecting");
   const [peers, setPeers] = useState<PeerDot[]>([]);
   const [myActivity, setMyActivity] = useState<Awaited<ReturnType<typeof poll>>["myActivity"]>(null);
   const [incomingWave, setIncomingWave] = useState<WaveNotification | null>(null);
@@ -307,8 +309,10 @@ export default function Home() {
     try {
       await reportActivity(sessionId, activityId, reason, sessionToken, tabId.current);
       showNotice("Thanks. The Signal was reported.");
+      return true;
     } catch {
       showNotice("Couldn’t send the report. Please try again.");
+      return false;
     }
   }
 
@@ -318,8 +322,10 @@ export default function Home() {
       if (connRef.current.kind !== "idle" && connRef.current.peerId === peerId) teardown("This person is blocked.");
       setPeers((current) => current.filter((peer) => peer.id !== peerId));
       showNotice("This person is blocked.");
+      return true;
     } catch {
       showNotice("Couldn’t block this person. Please try again.");
+      return false;
     }
   }
 
@@ -470,6 +476,7 @@ export default function Home() {
       try {
         const data = await poll(sessionId, sessionToken, tabId.current);
         if (!active) return;
+        setPollStatus("connected");
         setPeers(data.peers);
         setMyActivity(data.myActivity);
         setIsLeader(data.isLeader);
@@ -479,7 +486,9 @@ export default function Home() {
         if (data.isLeader) {
           for (const s of data.signals) processSignalRef.current(s);
         }
-      } catch {}
+      } catch {
+        if (active) setPollStatus("reconnecting");
+      }
       if (active) timer = setTimeout(tick, POLL_INTERVAL_MS);
     };
     tick();
@@ -531,6 +540,7 @@ export default function Home() {
     setSessionId(session.id);
     setSessionToken(session.token);
     setIsLeader(session.isLeader);
+    setPollStatus("connecting");
     setPhase("live");
   }
 
@@ -552,6 +562,7 @@ export default function Home() {
         activePeerId={activePeerId}
         myActivity={myActivity}
         isLeader={isLeader}
+        pollStatus={pollStatus}
         onSignalWave={createWave}
         onReportSignal={reportPeerSignal}
         onBlockPeer={blockPeerSession}

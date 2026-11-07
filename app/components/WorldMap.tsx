@@ -31,6 +31,7 @@ export default function WorldMap({
   activePeerId,
   myActivity,
   isLeader,
+  pollStatus,
   onSignalWave,
   onReportSignal,
   onBlockPeer,
@@ -45,9 +46,10 @@ export default function WorldMap({
   activePeerId: string | null;
   myActivity: { id: string; category: ActivityCategory } | null;
   isLeader: boolean;
+  pollStatus: "connecting" | "connected" | "reconnecting";
   onSignalWave: (peerId: string, signalId: string) => void;
-  onReportSignal: (signalId: string, reason: string) => void;
-  onBlockPeer: (peerId: string) => void;
+  onReportSignal: (signalId: string, reason: string) => Promise<boolean>;
+  onBlockPeer: (peerId: string) => Promise<boolean>;
   onCreateActivity: () => void;
   onRemoveActivity: () => void;
   onLogout: () => void;
@@ -96,8 +98,8 @@ export default function WorldMap({
         active.popup.remove();
         onSignalWaveRef.current(peer.id, peer.activity.id);
       },
-      onReport: (reason) => peer.activity && onReportSignalRef.current(peer.activity.id, reason),
-      onBlock: () => isLeaderRef.current && onBlockPeerRef.current(peer.id),
+      onReport: (reason) => peer.activity ? onReportSignalRef.current(peer.activity.id, reason) : Promise.resolve(false),
+      onBlock: () => isLeaderRef.current ? onBlockPeerRef.current(peer.id) : Promise.resolve(false),
     }));
   }, [peers, canConnect, isLeader]);
 
@@ -307,8 +309,8 @@ export default function WorldMap({
                       closePopover(true);
                       onSignalWaveRef.current(currentPeer.id, currentPeer.activity.id);
                     },
-                    onReport: (reason) => currentPeer.activity && onReportSignalRef.current(currentPeer.activity.id, reason),
-                    onBlock: () => isLeaderRef.current && onBlockPeerRef.current(currentPeer.id),
+                    onReport: (reason) => currentPeer.activity ? onReportSignalRef.current(currentPeer.activity.id, reason) : Promise.resolve(false),
+                    onBlock: () => isLeaderRef.current ? onBlockPeerRef.current(currentPeer.id) : Promise.resolve(false),
                   }));
                 });
                 marker = new mapboxgl.Marker({ element: el, anchor: "center" })
@@ -477,6 +479,7 @@ export default function WorldMap({
         online={peers.length}
         myActivity={myActivity}
         canEditActivity={isLeader}
+        pollStatus={pollStatus}
         onCreateActivity={onCreateActivity}
         onRemoveActivity={onRemoveActivity}
         onLogout={onLogout}
@@ -512,8 +515,8 @@ function renderPeerCard(
     onClose: () => void;
     onConnect: () => void;
     onWave: () => void;
-    onReport: (reason: string) => void;
-    onBlock: () => void;
+    onReport: (reason: string) => Promise<boolean>;
+    onBlock: () => Promise<boolean>;
   },
 ) {
   if (peer.activity) {

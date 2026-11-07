@@ -2,9 +2,11 @@
 
 Welcome, and thanks for taking the time. **Pulse** is a working (mostly!) Next.js
 app: a living globe of anonymous strangers — every online user is a dot on a world
-map; tap one to connect for text chat or a video call. No accounts, no history,
-nothing stored. Coordination and WebRTC signaling run through the server
-(Postgres + HTTP polling); chat and video are peer-to-peer over WebRTC.
+map; tap one to connect for text chat or a video call. There are no accounts or
+chat history. Presence, anonymous session credentials, activity Signals, Waves,
+and safety records are kept server-side for the lifetimes described below.
+Coordination and WebRTC signaling run through the server (Postgres + HTTP
+polling); chat and video are peer-to-peer over WebRTC.
 
 You'll work through **four phases**. They're designed to be realistic, not trick
 questions. We care as much about *how you think* as about what you ship — so a
@@ -37,6 +39,21 @@ one dot to connect, accept, chat, and start video.
   never touch the server, so messages and video are never seen or stored.
 - The map is **Mapbox GL JS**. Each dot is placed 1–3 km from the user's real
   location, randomized fresh every session.
+
+## Pulse Signals
+
+Publish one active Signal from the map to show what kind of connection you want.
+Nearby people can view its category and optional 120-character note, then send a
+Wave. Accepting a Wave opens the existing private chat and video-call flow.
+Signals stay discoverable only while their Pulse session is active; closing a
+tab or losing the connection is detected through server-observed heartbeats.
+Refreshes have a short reconnection grace period, and another active tab keeps
+the same session online.
+
+Signal discovery uses approximate map coordinates. You can remove a Signal,
+report it, or block its owner. Blocks hide Signals and prevent connection
+requests in both directions. Presence, Wave, rate-limit, and report records are
+server-side data; reports are retained for 30 days for operational review.
 
 ---
 

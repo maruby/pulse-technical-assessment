@@ -15,12 +15,24 @@ export default function PeerPopover({
   canConnect: boolean;
   onConnect: () => void;
   onClose: () => void;
-  onBlock: () => void;
+  onBlock: () => Promise<boolean>;
   canBlock: boolean;
 }) {
   const [confirmBlock, setConfirmBlock] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [blockError, setBlockError] = useState(false);
   const popoverRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
+
+  async function confirmBlocking() {
+    setBlockBusy(true);
+    setBlockError(false);
+    try {
+      if (!(await onBlock())) setBlockError(true);
+    } finally {
+      setBlockBusy(false);
+    }
+  }
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -56,8 +68,8 @@ export default function PeerPopover({
       <div className="peer-popover__actions">
         {confirmBlock ? (
           <>
-            <Button variant="quiet" onClick={() => setConfirmBlock(false)}>Cancel</Button>
-            <Button variant="danger" onClick={onBlock}>Block</Button>
+            <Button variant="quiet" disabled={blockBusy} onClick={() => setConfirmBlock(false)}>Cancel</Button>
+            <Button variant="danger" disabled={blockBusy} onClick={() => void confirmBlocking()}>{blockBusy ? "Blocking…" : "Block"}</Button>
           </>
         ) : (
           <>
@@ -67,6 +79,7 @@ export default function PeerPopover({
             <button type="button" className="peer-popover__block" disabled={!canBlock} onClick={() => setConfirmBlock(true)}>Block</button>
           </>
         )}
+        {blockError && <span className="peer-popover__feedback" role="alert">Couldn’t block this person. Try again.</span>}
       </div>
     </section>
   );

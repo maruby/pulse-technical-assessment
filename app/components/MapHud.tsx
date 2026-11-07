@@ -11,6 +11,7 @@ export default function MapHud({
   onRecenter,
   myActivity,
   canEditActivity,
+  pollStatus,
   onCreateActivity,
   onRemoveActivity,
   onLogout,
@@ -21,6 +22,7 @@ export default function MapHud({
   onRecenter: () => void;
   myActivity: { category: ActivityCategory } | null;
   canEditActivity: boolean;
+  pollStatus: "connecting" | "connected" | "reconnecting";
   onCreateActivity: () => void;
   onRemoveActivity: () => void;
   onLogout: () => void;
@@ -42,6 +44,13 @@ export default function MapHud({
           Leave
         </button>
       </header>
+
+      {pollStatus !== "connected" && (
+        <div className="map-hud__connection" role="status" aria-live="polite">
+          <span aria-hidden="true" />
+          {pollStatus === "connecting" ? "Connecting to Pulse…" : "Reconnecting to Pulse…"}
+        </div>
+      )}
 
       <nav className="map-hud__controls" aria-label="Map controls">
         <Button variant="quiet" onClick={onZoomIn} aria-label="Zoom in">

@@ -24,16 +24,40 @@ export default function SignalPopover({
   canWave: boolean;
   canBlock: boolean;
   onWave: () => void;
-  onReport: (reason: string) => void;
-  onBlock: () => void;
+  onReport: (reason: string) => Promise<boolean>;
+  onBlock: () => Promise<boolean>;
   onClose: () => void;
 }) {
   const cardRef = useRef<HTMLElement>(null);
   const onCloseRef = useRef(onClose);
   const [safetyAction, setSafetyAction] = useState<"report" | "block" | null>(null);
   const [reason, setReason] = useState("");
+  const [safetyBusy, setSafetyBusy] = useState(false);
+  const [safetyFeedback, setSafetyFeedback] = useState("");
   const activity = peer.activity;
   const category = activity?.category ?? "Exploring";
+
+  async function submitReport() {
+    setSafetyBusy(true);
+    setSafetyFeedback("");
+    try {
+      if (await onReport(reason.trim())) onClose();
+      else setSafetyFeedback("Couldn’t send the report. Please try again.");
+    } finally {
+      setSafetyBusy(false);
+    }
+  }
+
+  async function confirmBlock() {
+    setSafetyBusy(true);
+    setSafetyFeedback("");
+    try {
+      if (await onBlock()) onClose();
+      else setSafetyFeedback("Couldn’t block this person. Please try again.");
+    } finally {
+      setSafetyBusy(false);
+    }
+  }
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -60,13 +84,15 @@ export default function SignalPopover({
         {safetyAction === "report" ? (
           <div className="signal-popover__safety-form">
             <label htmlFor="signal-report-reason">What should we know? <span>Optional</span></label>
-            <textarea id="signal-report-reason" rows={2} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} />
-            <div><Button variant="quiet" onClick={() => setSafetyAction(null)}>Cancel</Button><Button variant="danger" onClick={() => onReport(reason.trim())}>Send report</Button></div>
+            <textarea id="signal-report-reason" rows={2} maxLength={500} value={reason} disabled={safetyBusy} onChange={(event) => setReason(event.target.value)} />
+            {safetyFeedback && <p className="signal-popover__feedback" role="alert">{safetyFeedback}</p>}
+            <div><Button variant="quiet" disabled={safetyBusy} onClick={() => setSafetyAction(null)}>Cancel</Button><Button variant="danger" disabled={safetyBusy} onClick={() => void submitReport()}>{safetyBusy ? "Sending…" : "Send report"}</Button></div>
           </div>
         ) : safetyAction === "block" ? (
           <div className="signal-popover__safety-form">
             <p>Block this person? Their Signals and connection requests will be hidden from you.</p>
-            <div><Button variant="quiet" onClick={() => setSafetyAction(null)}>Cancel</Button><Button variant="danger" onClick={onBlock}>Block</Button></div>
+            {safetyFeedback && <p className="signal-popover__feedback" role="alert">{safetyFeedback}</p>}
+            <div><Button variant="quiet" disabled={safetyBusy} onClick={() => setSafetyAction(null)}>Cancel</Button><Button variant="danger" disabled={safetyBusy} onClick={() => void confirmBlock()}>{safetyBusy ? "Blocking…" : "Block"}</Button></div>
           </div>
         ) : (
           <>

@@ -318,6 +318,8 @@ button { -webkit-tap-highlight-color: transparent; }
 
 .map-hud__controls .pulse-button { width: 40px; min-height: 40px; padding: 8px; border: 0; }
 .map-hud__controls svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.map-hud__connection { position: absolute; z-index: 10; top: 84px; left: 50%; display: flex; align-items: center; gap: 7px; max-width: calc(100vw - 24px); transform: translateX(-50%); border: 1px solid var(--border); border-radius: 999px; padding: 8px 12px; background: rgb(255 255 255 / 95%); box-shadow: var(--shadow-soft); color: var(--muted); font-size: 11px; white-space: nowrap; }
+.map-hud__connection > span { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--primary); animation: connection-pulse 1.2s ease-in-out infinite; }
 .map-hud__controls .pulse-button span { font-size: 20px; font-weight: 450; }
 
 .map-hud__privacy {
@@ -405,6 +407,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .peer-popover__actions .pulse-button { min-height: 34px; padding: 7px 10px; font-size: 10px; }
 .peer-popover__block { border: 0; padding: 4px 2px; background: transparent; color: var(--muted); font-size: 9px; text-decoration: underline; cursor: pointer; }
 .peer-popover__block:disabled { opacity: .45; cursor: not-allowed; }
+.peer-popover__feedback { flex-basis: 100%; color: var(--danger); font-size: 10px; }
 
 .paw-marker--signal { border: 2px solid #fff; background: #fce8d5; box-shadow: 0 4px 14px rgb(57 51 46 / 24%), 0 0 0 3px rgb(242 140 56 / 30%); }
 .paw-marker--signal img { width: 27px; height: 27px; }
@@ -429,6 +432,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .signal-popover__safety-form textarea { width: 100%; resize: vertical; border: 1px solid var(--border); border-radius: 10px; padding: 8px; color: var(--text); font-size: 11px; }
 .signal-popover__safety-form > div { display: flex; justify-content: flex-end; gap: 6px; }
 .signal-popover__safety-form .pulse-button { min-height: 32px; padding: 6px 10px; font-size: 10px; }
+.signal-popover__feedback { margin: 0; color: var(--danger); font-size: 10px; line-height: 1.4; }
 
 .map-hud__signal-actions { position: absolute; z-index: 10; right: 18px; bottom: 20px; display: grid; justify-items: end; gap: 8px; }
 .map-hud__create-signal { min-height: 46px; box-shadow: var(--shadow-card); }
@@ -602,12 +606,14 @@ button { -webkit-tap-highlight-color: transparent; }
   0%, 100% { transform: translateY(0) rotate(0); }
   50% { transform: translateY(-3px) rotate(-4deg); }
 }
+@keyframes connection-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgb(242 140 56 / 22%); } 50% { box-shadow: 0 0 0 5px rgb(242 140 56 / 0%); } }
 @keyframes paw-pop {
   from { opacity: 0; transform: scale(0.78) rotate(-8deg); }
   to { opacity: 1; transform: scale(1) rotate(0); }
 }
 
 @media (max-width: 640px) {
+  .map-hud__connection { top: max(66px, calc(env(safe-area-inset-top) + 60px)); font-size: 10px; }
   .map-hud__brand { top: max(10px, env(safe-area-inset-top)); left: 10px; min-height: 48px; gap: 8px; border-radius: 15px; padding: 6px 10px 6px 6px; }
   .map-hud__mark { width: 34px; height: 34px; }
   .map-hud__mark svg { width: 19px; height: 19px; }
@@ -651,6 +657,7 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .map-hud__connection > span { animation: none; }
   *,
   *::before,
   *::after {
